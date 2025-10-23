@@ -3,17 +3,23 @@ package devicestate
 import (
 	"context"
 	"fmt"
+	"os"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
 	"k8s.io/utils/ptr"
 
-	resourceapi "k8s.io/api/resource/v1"
-
+	configapi "github.com/k8snetworkplumbingwg/dra-driver-sriov/pkg/api/virtualfunction/v1alpha1"
+	"github.com/k8snetworkplumbingwg/dra-driver-sriov/pkg/cdi"
 	"github.com/k8snetworkplumbingwg/dra-driver-sriov/pkg/consts"
+	"github.com/k8snetworkplumbingwg/dra-driver-sriov/pkg/flags"
 	"github.com/k8snetworkplumbingwg/dra-driver-sriov/pkg/host"
 	mock_host "github.com/k8snetworkplumbingwg/dra-driver-sriov/pkg/host/mock"
+	drasriovtypes "github.com/k8snetworkplumbingwg/dra-driver-sriov/pkg/types"
+	resourceapi "k8s.io/api/resource/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 )
 
 var _ = Describe("Manager", func() {
@@ -281,4 +287,48 @@ var _ = Describe("Manager", func() {
 			Expect(envs).To(BeNil())
 		})
 	})
+	Context("MULTUS/STANDALONE behavior", func() {
+		It("skips ifName generation and NetAttachDef fetch in MULTUS", func() {
+			tmp, err := os.MkdirTemp("", "cdi-root")
+			Expect(err).ToNot(HaveOccurred())
+			defer os.RemoveAll(tmp)
+			cdiHandler, err := cdi.NewHandler(tmp)
+			Expect(err).ToNot(HaveOccurred())
+
+			s := &Manager{
+				k8sClient:              flags.ClientSets{},
+				defaultInterfacePrefix: "vfnet",
+				cdi:                    cdiHandler,
+				allocatable: drasriovtypes.AllocatableDevices{
+					"devA": {
+						Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
+							"sriovnetwork.k8snetworkplumbingwg.io/pciAddress": {StringValue: strPtr("0000:00:00.1")},
+						},
+					},
+				},
+				configurationMode: string(consts.ConfigurationModeMultus),
+			}
+
+			claim := &resourceapi.ResourceClaim{
+				ObjectMeta: metav1.ObjectMeta{Name: "claim1", Namespace: "ns1"},
+				Status: resourceapi.ResourceClaimStatus{
+					ReservedFor: []resourceapi.ResourceClaimConsumerReference{{UID: k8stypes.UID("poduid-1")}},
+				},
+			}
+			cfg := &configapi.VfConfig{NetAttachDefName: "nad1"} // should be ignored in MULTUS
+			ifIndex := 0
+			res := &resourceapi.DeviceRequestAllocationResult{Device: "devA", Pool: "pool1", Request: "req1"}
+
+			pd, err := s.applyConfigOnDevice(context.Background(), &ifIndex, claim, cfg, res)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(pd).ToNot(BeNil())
+			// ifName should remain empty and index unchanged
+			Expect(pd.IfName).To(Equal(""))
+			Expect(ifIndex).To(Equal(0))
+			// NetAttachDefConfig should be empty
+			Expect(pd.NetAttachDefConfig).To(BeEmpty())
+		})
+	})
 })
+
+func strPtr(s string) *string { return &s }

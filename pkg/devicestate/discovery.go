@@ -190,6 +190,9 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 				consts.AttributeRDMACapable: {
 					BoolValue: ptr.To(rdmaCapable),
 				},
+				consts.AttributeMultusDeviceID: {
+					StringValue: ptr.To(vfInfo.PciAddress),
+				},
 			}
 
 			resourceList[deviceName] = resourceapi.Device{
