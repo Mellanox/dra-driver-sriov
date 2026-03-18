@@ -289,7 +289,7 @@ var _ = Describe("Host", func() {
 				Expect(numaNode).To(Equal("1"))
 			})
 
-			It("should return '0' when NUMA node file contains -1", func() {
+			It("should passthrough '-1' when NUMA node file contains -1", func() {
 				fs.Dirs = []string{
 					"sys/bus/pci/devices/0000:01:00.0",
 				}
@@ -300,15 +300,15 @@ var _ = Describe("Host", func() {
 
 				numaNode, err := h.GetNumaNode("0000:01:00.0")
 				Expect(err).NotTo(HaveOccurred())
-				Expect(numaNode).To(Equal("0"))
+				Expect(numaNode).To(Equal("-1"))
 			})
 
-			It("should return '0' when NUMA node file does not exist", func() {
+			It("should return '-1' when NUMA node file does not exist", func() {
 				tearDown = fs.Use()
 
 				numaNode, err := h.GetNumaNode("0000:01:00.0")
 				Expect(err).NotTo(HaveOccurred())
-				Expect(numaNode).To(Equal("0"))
+				Expect(numaNode).To(Equal("-1"))
 			})
 		})
 

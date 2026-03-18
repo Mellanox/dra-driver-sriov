@@ -307,28 +307,21 @@ func (h *Host) GetLinkType(pciAddr string) (string, error) {
 	}
 }
 
-// GetNumaNode returns the NUMA node for a given PCI device
-// Parse NUMA node value. Keep the actual value including -1 which indicates
-// NUMA is not supported/enabled (standard Linux convention).
-// This allows users to filter devices based on NUMA availability.
+// GetNumaNode returns the NUMA node for a given PCI device.
+// On success, error is nil and the string value represent the NUMA node affinity. Note that -1 means "no affinity".
+// On failure, error is not nil and the string value must be ignored
 func (h *Host) GetNumaNode(pciAddress string) (string, error) {
 	numaNodePath := buildSysBusPciPath(pciAddress, "numa_node")
 	content, err := os.ReadFile(numaNodePath) /* #nosec G304 */
 	if err != nil {
-		// If numa_node file doesn't exist, return "0" as default
+		// If numa_node file doesn't exist, return "-1" to represent "no affinity" as the kernel would
 		if os.IsNotExist(err) {
-			return "0", nil
+			return "-1", nil
 		}
 		return "", fmt.Errorf("failed to read numa_node for %s: %v", pciAddress, err)
 	}
 
-	numaNode := strings.TrimSpace(string(content))
-	// If numa_node contains -1, it means NUMA is not available, default to "0"
-	if numaNode == "-1" {
-		return "0", nil
-	}
-
-	return numaNode, nil
+	return strings.TrimSpace(string(content)), nil
 }
 
 // GetPCIeRoot returns the PCIe Root Complex for a given PCI device using the upstream Kubernetes implementation.
