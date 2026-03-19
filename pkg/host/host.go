@@ -92,6 +92,7 @@ type Interface interface {
 	GetLinkType(pciAddr string) (string, error)
 
 	// Topology functions
+	GetNumaNode(pciAddress string) (string, error)
 	GetPCIeRoot(pciAddress string) (string, error)
 
 	// Driver binding operations
@@ -304,6 +305,23 @@ func (h *Host) GetLinkType(pciAddr string) (string, error) {
 		h.log.V(1).Info("Unsupported link type, defaulting to unknown", "interface", ifName, "type", typeInt)
 		return consts.LinkTypeUnknown, nil
 	}
+}
+
+// GetNumaNode returns the NUMA node for a given PCI device.
+// On success, error is nil and the string value represent the NUMA node affinity. Note that -1 means "no affinity".
+// On failure, error is not nil and the string value must be ignored
+func (h *Host) GetNumaNode(pciAddress string) (string, error) {
+	numaNodePath := buildSysBusPciPath(pciAddress, "numa_node")
+	content, err := os.ReadFile(numaNodePath) /* #nosec G304 */
+	if err != nil {
+		// If numa_node file doesn't exist, return "-1" to represent "no affinity" as the kernel would
+		if os.IsNotExist(err) {
+			return "-1", nil
+		}
+		return "", fmt.Errorf("failed to read numa_node for %s: %v", pciAddress, err)
+	}
+
+	return strings.TrimSpace(string(content)), nil
 }
 
 // GetPCIeRoot returns the PCIe Root Complex for a given PCI device using the upstream Kubernetes implementation.
