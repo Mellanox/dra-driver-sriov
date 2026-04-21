@@ -168,6 +168,61 @@ var _ = Describe("Host", func() {
 				interfaceName := h.TryGetInterfaceName("0000:01:00.0")
 				Expect(interfaceName).To(BeEmpty())
 			})
+
+			// Mellanox mlx5 in legacy SR-IOV mode exposes both the PF interface and
+			// its VF representors under the same PCI device's /net/ sysfs directory.
+			// The VF representor sorts first alphabetically (e.g. "eth0" < "eth_rail1"),
+			// so the function must use phys_port_name to pick the actual PF interface.
+
+			It("should skip VF representor and return PF interface when both share the same PCI device", func() {
+				// Mirrors the real DGX layout: 0000:0c:00.0/net/ contains
+				//   eth0       (VF representor, phys_port_name="pf0vf0")
+				//   eth_rail1  (PF interface,   phys_port_name="p0")
+				fs.Dirs = []string{
+					"sys/bus/pci/devices/0000:0c:00.0/net",
+					"sys/bus/pci/devices/0000:0c:00.0/net/eth0",
+					"sys/bus/pci/devices/0000:0c:00.0/net/eth_rail1",
+					"sys/class/net/eth0",
+					"sys/class/net/eth_rail1",
+				}
+				fs.Files = map[string][]byte{
+					"sys/class/net/eth0/phys_port_name":      []byte("pf0vf0\n"),
+					"sys/class/net/eth_rail1/phys_port_name": []byte("p0\n"),
+				}
+				tearDown = fs.Use()
+
+				interfaceName := h.TryGetInterfaceName("0000:0c:00.0")
+				Expect(interfaceName).To(Equal("eth_rail1"))
+			})
+
+			It("should return PF interface when phys_port_name is absent (no representors present)", func() {
+				// Single PF interface with no phys_port_name file → returned immediately.
+				fs.Dirs = []string{
+					"sys/bus/pci/devices/0000:01:00.0/net",
+					"sys/bus/pci/devices/0000:01:00.0/net/eth0",
+				}
+				// No sys/class/net/eth0/phys_port_name file.
+				tearDown = fs.Use()
+
+				interfaceName := h.TryGetInterfaceName("0000:01:00.0")
+				Expect(interfaceName).To(Equal("eth0"))
+			})
+
+			It("should fall back to first interface when all entries are VF representors", func() {
+				// Edge case: only representors in the net dir – return the first one as fallback.
+				fs.Dirs = []string{
+					"sys/bus/pci/devices/0000:01:00.0/net",
+					"sys/bus/pci/devices/0000:01:00.0/net/eth0",
+					"sys/class/net/eth0",
+				}
+				fs.Files = map[string][]byte{
+					"sys/class/net/eth0/phys_port_name": []byte("pf0vf0\n"),
+				}
+				tearDown = fs.Use()
+
+				interfaceName := h.TryGetInterfaceName("0000:01:00.0")
+				Expect(interfaceName).To(Equal("eth0"))
+			})
 		})
 
 		Context("GetNicSriovMode", func() {

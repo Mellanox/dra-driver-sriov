@@ -243,7 +243,12 @@ func (h *Host) PCI() (*ghw.PCIInfo, error) {
 	return ghw.PCI()
 }
 
-// TryGetInterfaceName tries to find the network interface name based on PCI address
+// TryGetInterfaceName tries to find the network interface name based on PCI address.
+// When multiple interfaces share the same PCI device (e.g. the PF and its VF
+// representors in mlx5 legacy mode), the actual PF interface is identified by
+// the absence of "vf" in its phys_port_name sysfs attribute.  VF representors
+// have phys_port_name values like "pf0vf0", while the PF itself has an empty
+// value or a simple port index like "p0".
 func (h *Host) TryGetInterfaceName(pciAddr string) string {
 	netDir := buildSysBusPciPath(pciAddr, "net")
 	if _, err := os.Lstat(netDir); err != nil {
@@ -255,12 +260,26 @@ func (h *Host) TryGetInterfaceName(pciAddr string) string {
 		return ""
 	}
 
-	if len(fInfos) == 0 {
-		return ""
+	// Prefer an interface that is not a VF representor.  Fall back to the
+	// first entry if no non-representor interface is found.
+	fallback := ""
+	for _, fi := range fInfos {
+		name := fi.Name()
+		if fallback == "" {
+			fallback = name
+		}
+		physPortNamePath := buildSysPath(fmt.Sprintf("/sys/class/net/%s/phys_port_name", name))
+		data, err := os.ReadFile(physPortNamePath)
+		if err != nil {
+			// No phys_port_name – cannot be a representor; treat as PF.
+			return name
+		}
+		if !strings.Contains(string(data), "vf") {
+			return name
+		}
 	}
 
-	// Return the first network interface name found
-	return fInfos[0].Name()
+	return fallback
 }
 
 // GetNicSriovMode returns the interface mode (simplified implementation)
