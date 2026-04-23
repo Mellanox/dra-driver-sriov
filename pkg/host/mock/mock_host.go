@@ -346,18 +346,18 @@ func (mr *MockInterfaceMockRecorder) RestoreDeviceDriver(pciAddress, originalDri
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RestoreDeviceDriver", reflect.TypeOf((*MockInterface)(nil).RestoreDeviceDriver), pciAddress, originalDriver)
 }
 
-// TryGetInterfaceName mocks base method.
-func (m *MockInterface) TryGetInterfaceName(pciAddr string) string {
+// TryGetPFInterfaceName mocks base method.
+func (m *MockInterface) TryGetPFInterfaceName(pciAddr string) string {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "TryGetInterfaceName", pciAddr)
+	ret := m.ctrl.Call(m, "TryGetPFInterfaceName", pciAddr)
 	ret0, _ := ret[0].(string)
 	return ret0
 }
 
-// TryGetInterfaceName indicates an expected call of TryGetInterfaceName.
-func (mr *MockInterfaceMockRecorder) TryGetInterfaceName(pciAddr any) *gomock.Call {
+// TryGetPFInterfaceName indicates an expected call of TryGetPFInterfaceName.
+func (mr *MockInterfaceMockRecorder) TryGetPFInterfaceName(pciAddr any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TryGetInterfaceName", reflect.TypeOf((*MockInterface)(nil).TryGetInterfaceName), pciAddr)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TryGetPFInterfaceName", reflect.TypeOf((*MockInterface)(nil).TryGetPFInterfaceName), pciAddr)
 }
 
 // UnbindDriverByBusAndDevice mocks base method.

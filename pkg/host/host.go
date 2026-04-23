@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/jaypipes/ghw"
+	"github.com/k8snetworkplumbingwg/sriovnet"
 	"k8s.io/dynamic-resource-allocation/deviceattribute"
 	"k8s.io/klog/v2"
 
@@ -87,7 +88,7 @@ type Interface interface {
 	PCI() (*ghw.PCIInfo, error)
 
 	// Network interface functions
-	TryGetInterfaceName(pciAddr string) string
+	TryGetPFInterfaceName(pciAddr string) string
 	GetNicSriovMode(pciAddr string) string
 	GetLinkType(pciAddr string) (string, error)
 
@@ -125,15 +126,19 @@ type Interface interface {
 
 // Host provides unified host system functionality for SR-IOV, PCI operations, and driver management
 type Host struct {
-	log          klog.Logger
-	rdmaProvider RdmaProvider
+	log              klog.Logger
+	rdmaProvider     RdmaProvider
+	netlinkProvider  NetlinkProvider
+	sriovnetProvider SriovnetProvider
 }
 
 // NewHost creates a new Host instance
 func NewHost() Interface {
 	return &Host{
-		log:          klog.FromContext(context.Background()).WithName("Host"),
-		rdmaProvider: newRdmaProvider(),
+		log:              klog.FromContext(context.Background()).WithName("Host"),
+		rdmaProvider:     newRdmaProvider(),
+		netlinkProvider:  &defaultNetlinkProvider{},
+		sriovnetProvider: &defaultSriovnetProvider{},
 	}
 }
 
@@ -243,39 +248,60 @@ func (h *Host) PCI() (*ghw.PCIInfo, error) {
 	return ghw.PCI()
 }
 
-// TryGetInterfaceName tries to find the network interface name based on PCI address
-func (h *Host) TryGetInterfaceName(pciAddr string) string {
+// TryGetPFInterfaceName returns the PF uplink netdev name for the given PCI
+// address. It uses sriovnet.GetUplinkRepresentor (devlink-based, works for both
+// legacy and switchdev), falling back to a plain sysfs scan for drivers that do
+// not implement devlink. Returns "" on failure.
+// Must not be called with a VF PCI address.
+func (h *Host) TryGetPFInterfaceName(pciAddr string) string {
+	name, err := h.sriovnetProvider.GetUplinkRepresentor(pciAddr)
+	if err == nil {
+		return name
+	}
+
+	if !errors.Is(err, sriovnet.ErrRepresentorNotFound) {
+		h.log.V(4).Info("failed to get PF interface name", "pciAddr", pciAddr, "err", err)
+		return ""
+	}
+
+	// Driver does not implement devlink — fall back to simple sysfs lookup.
 	netDir := buildSysBusPciPath(pciAddr, "net")
 	if _, err := os.Lstat(netDir); err != nil {
 		return ""
 	}
-
 	fInfos, err := os.ReadDir(netDir)
 	if err != nil {
+		h.log.Error(err, "failed to read net directory", "pciAddr", pciAddr, "path", netDir)
 		return ""
 	}
-
 	if len(fInfos) == 0 {
 		return ""
 	}
-
-	// Return the first network interface name found
 	return fInfos[0].Name()
 }
 
-// GetNicSriovMode returns the interface mode (simplified implementation)
-// This is a simplified version that returns "legacy" mode as fallback
-func (h *Host) GetNicSriovMode(_ string) string {
-	// For simplicity, always return legacy mode
-	// A full implementation would use netlink to query the eswitch mode
-	return "legacy"
+// GetNicSriovMode returns the eswitch mode ("legacy" or "switchdev") for the
+// given PF PCI address by querying the kernel via devlink.  If the device does
+// not support devlink or the query fails, "legacy" is returned as a safe
+// fallback – mirroring GetPfEswitchMode in sriov-network-device-plugin.
+func (h *Host) GetNicSriovMode(pciAddr string) string {
+	mode, err := h.netlinkProvider.GetDevLinkDeviceEswitchMode(pciAddr)
+	if err != nil {
+		h.log.V(4).Info("devlink eswitch query not supported, assuming legacy", "pciAddr", pciAddr, "err", err)
+		return consts.EswitchModeLegacy
+	}
+	if mode == "" {
+		h.log.V(4).Info("devlink eswitch mode is empty, assuming legacy", "pciAddr", pciAddr)
+		return consts.EswitchModeLegacy
+	}
+	return mode
 }
 
 // GetLinkType returns the link type for a given network interface
 // Common types: ethernet (type 1), infiniband (type 32)
 func (h *Host) GetLinkType(pciAddr string) (string, error) {
 	// Get the interface name first
-	ifName := h.TryGetInterfaceName(pciAddr)
+	ifName := h.TryGetPFInterfaceName(pciAddr)
 	if ifName == "" {
 		return "", fmt.Errorf("unable to get interface name for PCI address %s", pciAddr)
 	}

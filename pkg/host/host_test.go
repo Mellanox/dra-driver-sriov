@@ -8,6 +8,8 @@ import (
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
 
+	"github.com/k8snetworkplumbingwg/sriovnet"
+
 	configapi "github.com/k8snetworkplumbingwg/dra-driver-sriov/pkg/api/virtualfunction/v1alpha1"
 	"github.com/k8snetworkplumbingwg/dra-driver-sriov/pkg/consts"
 	"github.com/k8snetworkplumbingwg/dra-driver-sriov/pkg/host"
@@ -137,135 +139,175 @@ var _ = Describe("Host", func() {
 	})
 
 	Describe("Network Interface Functions", func() {
-		Context("TryGetInterfaceName", func() {
-			It("should return interface name when net directory exists", func() {
+		Context("TryGetPFInterfaceName", func() {
+			// --- devlink path (driver implements devlink, e.g. mlx5) ---
+
+			It("should return interface name when sriovnet succeeds", func() {
+				hTest := host.NewHostForTest(nil, &host.FakeSriovnetProvider{UplinkName: "eth0"})
+				tearDown = fs.Use()
+
+				Expect(hTest.TryGetPFInterfaceName("0000:01:00.0")).To(Equal("eth0"))
+			})
+
+			It("should return empty string when sriovnet fails with a non-representor error", func() {
+				hTest := host.NewHostForTest(nil, &host.FakeSriovnetProvider{
+					UplinkError: fmt.Errorf("invalid PCI address"),
+				})
+				tearDown = fs.Use()
+
+				Expect(hTest.TryGetPFInterfaceName("0000:01:00.0")).To(BeEmpty())
+			})
+
+			// --- sysfs fallback path (driver does not implement devlink, e.g. Intel NICs) ---
+			// sriovnet returns ErrRepresentorNotFound when neither devlink nor
+			// phys_switch_id sysfs succeed — the signal that this driver has no
+			// devlink support and we should fall back to simple sysfs.
+
+			It("should return first netdev from sysfs on ErrRepresentorNotFound", func() {
+				hTest := host.NewHostForTest(nil, &host.FakeSriovnetProvider{
+					UplinkError: sriovnet.ErrRepresentorNotFound,
+				})
 				fs.Dirs = []string{
 					"sys/bus/pci/devices/0000:01:00.0/net",
 					"sys/bus/pci/devices/0000:01:00.0/net/eth0",
 				}
 				tearDown = fs.Use()
 
-				interfaceName := h.TryGetInterfaceName("0000:01:00.0")
-				Expect(interfaceName).To(Equal("eth0"))
+				Expect(hTest.TryGetPFInterfaceName("0000:01:00.0")).To(Equal("eth0"))
 			})
 
-			It("should return empty string when net directory does not exist", func() {
-				fs.Dirs = []string{
-					"sys/bus/pci/devices/0000:01:00.0",
-				}
+			It("should return empty string on ErrRepresentorNotFound when net directory is missing", func() {
+				hTest := host.NewHostForTest(nil, &host.FakeSriovnetProvider{
+					UplinkError: sriovnet.ErrRepresentorNotFound,
+				})
+				fs.Dirs = []string{"sys/bus/pci/devices/0000:01:00.0"}
 				tearDown = fs.Use()
 
-				interfaceName := h.TryGetInterfaceName("0000:01:00.0")
-				Expect(interfaceName).To(BeEmpty())
+				Expect(hTest.TryGetPFInterfaceName("0000:01:00.0")).To(BeEmpty())
 			})
 
-			It("should return empty string when net directory is empty", func() {
-				fs.Dirs = []string{
-					"sys/bus/pci/devices/0000:01:00.0/net",
-				}
+			It("should return empty string on ErrRepresentorNotFound when net directory is empty", func() {
+				hTest := host.NewHostForTest(nil, &host.FakeSriovnetProvider{
+					UplinkError: sriovnet.ErrRepresentorNotFound,
+				})
+				fs.Dirs = []string{"sys/bus/pci/devices/0000:01:00.0/net"}
 				tearDown = fs.Use()
 
-				interfaceName := h.TryGetInterfaceName("0000:01:00.0")
-				Expect(interfaceName).To(BeEmpty())
+				Expect(hTest.TryGetPFInterfaceName("0000:01:00.0")).To(BeEmpty())
 			})
 		})
 
 		Context("GetNicSriovMode", func() {
-			It("should return legacy mode", func() {
+			It("should return switchdev when devlink reports switchdev", func() {
+				fakeNetlink := &host.FakeNetlinkProvider{EswitchMode: consts.EswitchModeSwitchdev}
+				hMode := host.NewHostForTest(fakeNetlink)
 				tearDown = fs.Use()
 
-				mode := h.GetNicSriovMode("0000:01:00.0")
-				Expect(mode).To(Equal("legacy"))
+				mode := hMode.GetNicSriovMode("0000:01:00.0")
+				Expect(mode).To(Equal(consts.EswitchModeSwitchdev))
+			})
+
+			It("should return legacy when devlink reports legacy", func() {
+				fakeNetlink := &host.FakeNetlinkProvider{EswitchMode: consts.EswitchModeLegacy}
+				hMode := host.NewHostForTest(fakeNetlink)
+				tearDown = fs.Use()
+
+				mode := hMode.GetNicSriovMode("0000:01:00.0")
+				Expect(mode).To(Equal(consts.EswitchModeLegacy))
+			})
+
+			It("should fall back to legacy when devlink query fails", func() {
+				fakeNetlink := &host.FakeNetlinkProvider{EswitchError: fmt.Errorf("devlink not supported")}
+				hMode := host.NewHostForTest(fakeNetlink)
+				tearDown = fs.Use()
+
+				mode := hMode.GetNicSriovMode("0000:01:00.0")
+				Expect(mode).To(Equal(consts.EswitchModeLegacy))
+			})
+
+			It("should fall back to legacy when devlink returns empty mode", func() {
+				fakeNetlink := &host.FakeNetlinkProvider{EswitchMode: ""}
+				hMode := host.NewHostForTest(fakeNetlink)
+				tearDown = fs.Use()
+
+				mode := hMode.GetNicSriovMode("0000:01:00.0")
+				Expect(mode).To(Equal(consts.EswitchModeLegacy))
 			})
 		})
 
 		Context("GetLinkType", func() {
 			It("should return 'ethernet' for type ArphrdEther", func() {
-				fs.Dirs = []string{
-					"sys/bus/pci/devices/0000:01:00.0/net",
-					"sys/bus/pci/devices/0000:01:00.0/net/eth0",
-					"sys/class/net/eth0",
-				}
+				fs.Dirs = []string{"sys/class/net/eth0"}
 				fs.Files = map[string][]byte{
 					"sys/class/net/eth0/type": []byte(fmt.Sprintf("%d\n", host.ArphrdEther)),
 				}
+				hLink := host.NewHostForTest(nil, &host.FakeSriovnetProvider{UplinkName: "eth0"})
 				tearDown = fs.Use()
 
-				linkType, err := h.GetLinkType("0000:01:00.0")
+				linkType, err := hLink.GetLinkType("0000:01:00.0")
 				Expect(err).NotTo(HaveOccurred())
 				Expect(linkType).To(Equal(consts.LinkTypeEthernet))
 			})
 
 			It("should return 'infiniband' for type ArphrdInfiniband", func() {
-				fs.Dirs = []string{
-					"sys/bus/pci/devices/0000:02:00.0/net",
-					"sys/bus/pci/devices/0000:02:00.0/net/ib0",
-					"sys/class/net/ib0",
-				}
+				fs.Dirs = []string{"sys/class/net/ib0"}
 				fs.Files = map[string][]byte{
 					"sys/class/net/ib0/type": []byte(fmt.Sprintf("%d\n", host.ArphrdInfiniband)),
 				}
+				hLink := host.NewHostForTest(nil, &host.FakeSriovnetProvider{UplinkName: "ib0"})
 				tearDown = fs.Use()
 
-				linkType, err := h.GetLinkType("0000:02:00.0")
+				linkType, err := hLink.GetLinkType("0000:02:00.0")
 				Expect(err).NotTo(HaveOccurred())
 				Expect(linkType).To(Equal(consts.LinkTypeInfiniband))
 			})
 
 			It("should return 'unknown' for unknown types", func() {
-				fs.Dirs = []string{
-					"sys/bus/pci/devices/0000:03:00.0/net",
-					"sys/bus/pci/devices/0000:03:00.0/net/custom0",
-					"sys/class/net/custom0",
-				}
+				fs.Dirs = []string{"sys/class/net/custom0"}
 				fs.Files = map[string][]byte{
 					"sys/class/net/custom0/type": []byte("99\n"),
 				}
+				hLink := host.NewHostForTest(nil, &host.FakeSriovnetProvider{UplinkName: "custom0"})
 				tearDown = fs.Use()
 
-				linkType, err := h.GetLinkType("0000:03:00.0")
+				linkType, err := hLink.GetLinkType("0000:03:00.0")
 				Expect(err).NotTo(HaveOccurred())
 				Expect(linkType).To(Equal(consts.LinkTypeUnknown))
 			})
 
 			It("should return error when interface name cannot be determined", func() {
-				fs.Dirs = []string{
-					"sys/bus/pci/devices/0000:04:00.0",
-				}
+				hLink := host.NewHostForTest(nil, &host.FakeSriovnetProvider{
+					UplinkError: fmt.Errorf("invalid PCI address"),
+				})
 				tearDown = fs.Use()
 
-				linkType, err := h.GetLinkType("0000:04:00.0")
+				linkType, err := hLink.GetLinkType("0000:04:00.0")
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("unable to get interface name"))
 				Expect(linkType).To(BeEmpty())
 			})
 
 			It("should return error when type file does not exist", func() {
-				fs.Dirs = []string{
-					"sys/bus/pci/devices/0000:05:00.0/net",
-					"sys/bus/pci/devices/0000:05:00.0/net/eth0",
-					"sys/class/net/eth0",
-				}
+				fs.Dirs = []string{"sys/class/net/eth0"}
+				// No type file → ReadFile will fail.
+				hLink := host.NewHostForTest(nil, &host.FakeSriovnetProvider{UplinkName: "eth0"})
 				tearDown = fs.Use()
 
-				linkType, err := h.GetLinkType("0000:05:00.0")
+				linkType, err := hLink.GetLinkType("0000:05:00.0")
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("failed to read link type"))
 				Expect(linkType).To(BeEmpty())
 			})
 
 			It("should return error when type file contains invalid data", func() {
-				fs.Dirs = []string{
-					"sys/bus/pci/devices/0000:06:00.0/net",
-					"sys/bus/pci/devices/0000:06:00.0/net/eth0",
-					"sys/class/net/eth0",
-				}
+				fs.Dirs = []string{"sys/class/net/eth0"}
 				fs.Files = map[string][]byte{
 					"sys/class/net/eth0/type": []byte("invalid\n"),
 				}
+				hLink := host.NewHostForTest(nil, &host.FakeSriovnetProvider{UplinkName: "eth0"})
 				tearDown = fs.Use()
 
-				linkType, err := h.GetLinkType("0000:06:00.0")
+				linkType, err := hLink.GetLinkType("0000:06:00.0")
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("failed to parse link type value"))
 				Expect(linkType).To(BeEmpty())
@@ -581,7 +623,7 @@ vhost_net 32768 1 tun, Live 0xffffffffa0456000`),
 				result = h.IsSriovPF("non-existent-device")
 				Expect(result).To(BeFalse())
 
-				interfaceName := h.TryGetInterfaceName("non-existent-device")
+				interfaceName := h.TryGetPFInterfaceName("non-existent-device")
 				Expect(interfaceName).To(BeEmpty())
 			})
 

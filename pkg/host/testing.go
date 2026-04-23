@@ -1,10 +1,55 @@
 package host
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path"
+
+	"k8s.io/klog/v2"
 )
+
+// NewHostForTest creates a Host with injectable providers, for use in unit tests.
+// Pass nil for a provider to use the default production implementation.
+// The optional sriovnetProvider overrides the sriovnet calls (useful for
+// TryGetPFInterfaceName tests); when omitted the default sriovnet library is used.
+func NewHostForTest(netlinkProvider NetlinkProvider, sriovnetProvider ...SriovnetProvider) Interface {
+	if netlinkProvider == nil {
+		netlinkProvider = &defaultNetlinkProvider{}
+	}
+	snProvider := SriovnetProvider(&defaultSriovnetProvider{})
+	if len(sriovnetProvider) > 0 && sriovnetProvider[0] != nil {
+		snProvider = sriovnetProvider[0]
+	}
+	return &Host{
+		log:              klog.FromContext(context.Background()).WithName("Host"),
+		rdmaProvider:     newRdmaProvider(),
+		netlinkProvider:  netlinkProvider,
+		sriovnetProvider: snProvider,
+	}
+}
+
+// FakeNetlinkProvider is a configurable NetlinkProvider for use in unit tests.
+type FakeNetlinkProvider struct {
+	EswitchMode  string
+	EswitchError error
+}
+
+func (f *FakeNetlinkProvider) GetDevLinkDeviceEswitchMode(_ string) (string, error) {
+	return f.EswitchMode, f.EswitchError
+}
+
+// FakeSriovnetProvider is a configurable SriovnetProvider for use in unit tests.
+type FakeSriovnetProvider struct {
+	// UplinkName is returned by GetUplinkRepresentor on success.
+	UplinkName string
+	// UplinkError, when non-nil, is returned instead of UplinkName.
+	UplinkError error
+}
+
+func (f *FakeSriovnetProvider) GetUplinkRepresentor(_ string) (string, error) {
+	return f.UplinkName, f.UplinkError
+}
 
 // FakeFilesystem allows to setup isolated fake files structure used for the tests.
 type FakeFilesystem struct {
