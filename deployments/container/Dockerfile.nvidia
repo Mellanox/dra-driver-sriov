@@ -13,6 +13,7 @@
 # limitations under the License.
 
 ARG GOLANG_VERSION=1.25
+ARG BASE_IMAGE_GO_DISTROLESS
 
 FROM --platform=$BUILDPLATFORM golang:${GOLANG_VERSION} AS build
 
@@ -30,7 +31,6 @@ RUN rm -rf .git
 FROM alpine:3 AS pkgs
 RUN apk add --no-cache hwdata-pci
 
-ARG BASE_IMAGE_GO_DISTROLESS
 FROM ${BASE_IMAGE_GO_DISTROLESS:-nvcr.io/nvidia/distroless/go:v4.0.2}
 
 LABEL org.opencontainers.image.source=https://github.com/k8snetworkplumbingwg/dra-driver-sriov
