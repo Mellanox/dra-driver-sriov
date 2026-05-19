@@ -254,11 +254,10 @@ func RunPlugin(ctx context.Context, config *types.Config) error {
 	// register to NRI unless MULTUS mode is set
 	var nriPlugin *nri.Plugin
 	if consts.ConfigurationMode(config.Flags.ConfigurationMode) != consts.ConfigurationModeMultus {
-		nriPlugin, err = nri.NewNRIPlugin(config, podManager, cniRuntime)
+		nriPlugin, err = nri.NewNRIPlugin(config, podManager, cniRuntime, dvr)
 		if err != nil {
 			return fmt.Errorf("failed to create NRI plugin: %w", err)
 		}
-		nriPlugin.SetMetadataUpdater(dvr)
 		err = nriPlugin.Start(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to start NRI plugin: %w", err)
