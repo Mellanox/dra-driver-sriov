@@ -9,20 +9,20 @@ require (
 	github.com/jaypipes/ghw v0.24.0
 	github.com/jaypipes/pcidb v1.1.1
 	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.7.7
-	github.com/onsi/ginkgo/v2 v2.29.0
-	github.com/onsi/gomega v1.40.0
+	github.com/onsi/ginkgo/v2 v2.31.0
+	github.com/onsi/gomega v1.42.0
 	github.com/spf13/pflag v1.0.10
 	github.com/urfave/cli/v2 v2.27.7
 	go.uber.org/mock v0.6.0
 	google.golang.org/grpc v1.81.1
-	k8s.io/api v0.36.1
-	k8s.io/apimachinery v0.36.1
-	k8s.io/client-go v0.36.1
-	k8s.io/component-base v0.36.1
-	k8s.io/dynamic-resource-allocation v0.36.1
+	k8s.io/api v0.36.2
+	k8s.io/apimachinery v0.36.2
+	k8s.io/client-go v0.36.2
+	k8s.io/component-base v0.36.2
+	k8s.io/dynamic-resource-allocation v0.36.2
 	k8s.io/klog/v2 v2.140.0
-	k8s.io/kubelet v0.36.1
-	k8s.io/kubernetes v1.36.1
+	k8s.io/kubelet v0.36.2
+	k8s.io/kubernetes v1.36.2
 	k8s.io/utils v0.0.0-20260210185600-b8788abfbbc2
 	sigs.k8s.io/controller-runtime v0.24.1
 	tags.cncf.io/container-device-interface v1.1.0
