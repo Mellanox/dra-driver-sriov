@@ -9,10 +9,12 @@ require (
 	github.com/jaypipes/ghw v0.24.0
 	github.com/jaypipes/pcidb v1.1.1
 	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.7.7
+	github.com/k8snetworkplumbingwg/sriovnet v1.3.0
 	github.com/onsi/ginkgo/v2 v2.32.0
 	github.com/onsi/gomega v1.42.1
 	github.com/spf13/pflag v1.0.10
 	github.com/urfave/cli/v2 v2.27.7
+	github.com/vishvananda/netlink v1.3.2-0.20251101063711-6e61cd407d1d
 	go.uber.org/mock v0.6.0
 	google.golang.org/grpc v1.81.1
 	k8s.io/api v0.36.2
@@ -72,9 +74,9 @@ require (
 	github.com/prometheus/procfs v0.19.2 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
+	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cobra v1.10.2 // indirect
 	github.com/tetratelabs/wazero v1.11.0 // indirect
-	github.com/vishvananda/netlink v1.3.1 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect

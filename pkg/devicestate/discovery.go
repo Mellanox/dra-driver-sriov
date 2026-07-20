@@ -67,7 +67,7 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 			continue
 		}
 
-		pfNetName := host.GetHelpers().TryGetInterfaceName(device.Address)
+		pfNetName := host.GetHelpers().TryGetPFInterfaceName(device.Address)
 		if pfNetName == "" {
 			logger.Error(nil, "Unable to get interface name for device, skipping", "address", device.Address)
 			continue
