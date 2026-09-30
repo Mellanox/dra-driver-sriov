@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG GOLANG_VERSION=1.26
 ARG BASE_IMAGE_GO_DISTROLESS
 
-FROM --platform=$BUILDPLATFORM golang:${GOLANG_VERSION} AS build
+ARG BASE_IMAGE_GO_BUILDER=golang:1.26
+FROM --platform=$BUILDPLATFORM ${BASE_IMAGE_GO_BUILDER} AS build
 
 ARG GOPROXY
 ENV GOPROXY=$GOPROXY
